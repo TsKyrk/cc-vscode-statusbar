@@ -171,6 +171,12 @@ After editing `settings.json`, re-parse it. A malformed settings file silently d
 | `2.1.217-win32-x64` | yes |
 | `2.1.218-win32-x64` | yes |
 | `2.1.220-win32-x64` | yes |
+| `2.1.228-win32-x64` | no — anchor rewritten below |
+| `2.1.233-win32-x64` | yes (after rewrite) |
+| `2.1.234-win32-x64` | yes (after rewrite) |
 
-The anchor depends on minified variable names, which change between builds. Add rows here when
-you confirm a new version.
+The anchor depended on minified variable names, which change between builds. `2.1.228` broke it
+(the mode-selector call site's last prop, `onSelectUltracode:y`, became `:x`; everything else
+held). The regex now matches `[\w$]+` for every prop *value* in that call instead of hardcoding
+them — only the literal prop names and surrounding syntax are fixed — so a future rename of that
+kind won't need another patch. Add rows here when you confirm a new version.
