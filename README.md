@@ -60,6 +60,70 @@ reproduced as published. For any reuse beyond that, ask them.
 
 ---
 
+# NEW FEATURE : Checkout the other branch "feat/usage-limits-badge" for usage limit feature
+
+![capture](capture.png "Capture")
+
+Additonnal badges : **`5h 42% · 7d 18%`**, the share of the 5-hour session window and the 7-day weekly window
+you've burned, with a bar each, reset times on hover, amber at 80% and red at 95%. Same script,
+same install.
+
+It reads the same `/api/oauth/usage` figures as the extension's *Account & Usage* dialog, which
+means it needs a Claude AI subscription login (Pro / Max / Team) — no other auth method reports
+those windows, and the badge then stays hidden — and it refetches them every five minutes per
+open webview. That's why it's a branch and not the default: `main` stays as published, working
+everywhere and adding no network traffic.
+
+## Switching
+
+`git switch feat/usage-limits-badge`, then re-run the script; it reports
+`badge upgraded from index.js.orig ✓` and you reload the VS Code window.
+
+Coming back needs `webview/index.js.orig` restored **first**. Idempotence is one-way: a bundle
+patched by the branch contains `main`'s badge verbatim, so `main`'s script reports *already
+patched* and would leave the usage badge running. The other direction needs no such care — the
+branch's script recognises the older badge as outdated and re-patches from the backup.
+
+```sh
+git switch main
+cp ~/.vscode/extensions/anthropic.claude-code-*/webview/index.js.orig \
+   ~/.vscode/extensions/anthropic.claude-code-*/webview/index.js
+node claude-code-model-badge.js
+```
+
+## What it changes in the patch
+
+A second preact element goes in at the same anchor, so `PATCH` becomes `USAGE_BADGE + BADGE`.
+It reads the session's `utilization` signal — which the stock UI never touches — and polls
+`requestUsageUpdate()` to keep it fresh. Everything under *Notes for Claude Code* applies there
+too, plus those two symbols.
+
+That poll is the only part worth being careful with. `/api/oauth/usage` answers **429** if you
+lean on it, and the stock extension only calls it when the *Account & Usage* dialog opens — one
+poll per minute per webview was enough to get locked out for hours, and because a failed fetch
+blanks the signal host-side, the badge silently vanished rather than looking broken. Hence
+`USAGE_POLL_MS` at five minutes with jitter, exponential backoff on failure, and the last good
+reading cached and shown dimmed. Don't lower it.
+
+## Whether to offer the branch — for the agent
+
+It only pays off on a Claude AI subscription login; on anything else its badge renders nothing
+and `main` is the honest recommendation. Check rather than making the user self-declare:
+
+```js
+// ~/.claude.json — `oauthAccount` is written by a Claude AI (OAuth) login
+const os = require('os'), fs = require('fs');
+const j = JSON.parse(fs.readFileSync(`${os.homedir()}/.claude.json`, 'utf8'));
+j.oauthAccount?.organizationType;   // "claude_pro", "claude_max", … — absent on API-key logins
+```
+
+That is the *CLI's* login and the extension keeps its own auth state; the same account in
+practice on one machine, but a heuristic, not proof. Say which way it came out, then stop — do
+not switch branches on your own initiative: a `SessionStart` hook pointing at this clone would
+silently start running something else.
+
+---
+
 # Notes for Claude Code
 
 *Everything below is for the agent doing the install. Humans can stop reading.*
