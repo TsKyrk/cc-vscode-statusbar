@@ -238,9 +238,26 @@ After editing `settings.json`, re-parse it. A malformed settings file silently d
 | `2.1.228-win32-x64` | no — anchor rewritten below |
 | `2.1.233-win32-x64` | yes (after rewrite) |
 | `2.1.234-win32-x64` | yes (after rewrite) |
+| `2.1.247-win32-x64` | no — badge rewritten below |
+| `2.1.250-win32-x64` | yes (after rewrite) |
 
 The anchor depended on minified variable names, which change between builds. `2.1.228` broke it
 (the mode-selector call site's last prop, `onSelectUltracode:y`, became `:x`; everything else
 held). The regex now matches `[\w$]+` for every prop *value* in that call instead of hardcoding
 them — only the literal prop names and surrounding syntax are fixed — so a future rename of that
-kind won't need another patch. Add rows here when you confirm a new version.
+kind won't need another patch.
+
+`2.1.247` broke it differently and further up the stack: the `BADGE` snippet itself, not just
+`ANCHOR`, hardcoded single-letter identifiers (`b` for the element-creator/hyperscript function,
+`e` for the session object, `k`/`S` for the resolved model and normalized selection, `f`/`g` for
+effort level and supported levels), betting the minifier would keep reusing those same letters.
+It had for several builds by coincidence, then didn't — `b`→`j`, `e`→`$`, `f`→`F`, `g`→`A`, and
+`k`/`S` had no equivalent at the anchor site at all (they were locals computed further up inside
+the render function, one build's `k=_.find(...)` away from not existing under that name next
+time). Two fixes: `ANCHOR` now captures the element-creator, session, effort, and
+supported-levels identifiers directly from the anchor call site (the one place they appear
+undisguised) and threads them into `BADGE` the same way `__CSS__` already worked; and the badge
+no longer depends on `k`/`S` being handed to it — it re-derives the resolved model and current
+selection itself from `session.claudeConfig.value.models` and `session.modelSelection.value`,
+which are stable property names, not local variables that reshuffle between builds. Add rows
+here when you confirm a new version.
