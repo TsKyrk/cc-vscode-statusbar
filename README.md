@@ -247,6 +247,7 @@ After editing `settings.json`, re-parse it. A malformed settings file silently d
 | `2.1.247-win32-x64` | no — badge rewritten below |
 | `2.1.250-win32-x64` | yes (after rewrite) |
 | `2.1.266-win32-x64` | anchor yes; usage badge blank — usage source rewritten below |
+| `2.1.268-win32-x64` | yes (after rewrite) |
 
 The anchor depended on minified variable names, which change between builds. `2.1.228` broke it
 (the mode-selector call site's last prop, `onSelectUltracode:y`, became `:x`; everything else
@@ -275,5 +276,8 @@ in a module-scope signal, renamed and rescaled on the way — `fiveHour`/`sevenD
 `five_hour`/`seven_day`, `utilization` went from a percentage to a 0-1 fraction, and `resetsAt`
 from an ISO string to epoch seconds (absent once the window has rolled over). `USAGE_BADGE` reads
 that signal instead, and derives its minified name from the relay call-site rather than
-hardcoding it. `requestUsageUpdate()` still drives the refresh, unchanged. Add rows here when you
-confirm a new version.
+hardcoding it. `requestUsageUpdate()` still drives the refresh, unchanged.
+
+`2.1.268` shipped two days later and is the reason that name is derived rather than written down:
+the same signal is `kG` in `2.1.266` and `xG` in `2.1.268`. Nothing else moved, and the script
+patched it unchanged. Add rows here when you confirm a new version.
