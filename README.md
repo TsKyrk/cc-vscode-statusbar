@@ -93,15 +93,21 @@ node claude-code-model-badge.js
 
 ## What it changes in the patch
 
-A second preact element goes in at the same anchor, so `PATCH` becomes `USAGE_BADGE + BADGE`.
-It reads the session's `utilization` signal — which the stock UI never touches — and polls
-`requestUsageUpdate()` to keep it fresh. Everything under *Notes for Claude Code* applies there
-too, plus those two symbols.
+A second preact element goes in at the same anchor, so the patch becomes
+`USAGE_BADGE + BADGE` (via `buildPatch`). It reads the module-scope signal the host feeds with
+`panel_usage_update` — `{five_hour, seven_day, ...}`, each window `{utilization: 0-1, resetsAt:
+epoch seconds}` — and polls `requestUsageUpdate()` to keep it fresh. That signal's minified name
+is derived at patch time the way `ANCHOR` derives the rest, in two hops from shapes rather than
+names: the `panel_usage_update` relay names the merge function, and the merge function's body
+names the signal. Everything under *Notes for Claude Code* applies there too.
+
+If that derivation fails the usage half is simply left out and the model badge still installs;
+the script says so on the outcome line rather than shipping a badge that renders nothing.
 
 That poll is the only part worth being careful with. `/api/oauth/usage` answers **429** if you
 lean on it, and the stock extension only calls it when the *Account & Usage* dialog opens — one
 poll per minute per webview was enough to get locked out for hours, and because a failed fetch
-blanks the signal host-side, the badge silently vanished rather than looking broken. Hence
+leaves the signal empty, the badge silently vanished rather than looking broken. Hence
 `USAGE_POLL_MS` at five minutes with jitter, exponential backoff on failure, and the last good
 reading cached and shown dimmed. Don't lower it.
 
@@ -240,6 +246,7 @@ After editing `settings.json`, re-parse it. A malformed settings file silently d
 | `2.1.234-win32-x64` | yes (after rewrite) |
 | `2.1.247-win32-x64` | no — badge rewritten below |
 | `2.1.250-win32-x64` | yes (after rewrite) |
+| `2.1.266-win32-x64` | anchor yes; usage badge blank — usage source rewritten below |
 
 The anchor depended on minified variable names, which change between builds. `2.1.228` broke it
 (the mode-selector call site's last prop, `onSelectUltracode:y`, became `:x`; everything else
@@ -259,5 +266,14 @@ supported-levels identifiers directly from the anchor call site (the one place t
 undisguised) and threads them into `BADGE` the same way `__CSS__` already worked; and the badge
 no longer depends on `k`/`S` being handed to it — it re-derives the resolved model and current
 selection itself from `session.claudeConfig.value.models` and `session.modelSelection.value`,
-which are stable property names, not local variables that reshuffle between builds. Add rows
-here when you confirm a new version.
+which are stable property names, not local variables that reshuffle between builds.
+
+`2.1.266` left the anchor and the model badge intact but moved the usage data out from under the
+usage badge, which then rendered nothing at all: the session's `.utilization` signal is gone.
+The windows now arrive as a `panel_usage_update` message the host pushes to the webview and land
+in a module-scope signal, renamed and rescaled on the way — `fiveHour`/`sevenDay` became
+`five_hour`/`seven_day`, `utilization` went from a percentage to a 0-1 fraction, and `resetsAt`
+from an ISO string to epoch seconds (absent once the window has rolled over). `USAGE_BADGE` reads
+that signal instead, and derives its minified name from the relay call-site rather than
+hardcoding it. `requestUsageUpdate()` still drives the refresh, unchanged. Add rows here when you
+confirm a new version.
