@@ -34,20 +34,26 @@ const SLASH_D = 'M34.3 34.2C37.4 31.1 42.5 31.1 45.6 34.2L605.6 594.2C608.7 597.
 
 const BADGE = '(()=>{try{let SS=__SESSION__,T=SS?.thinkingLevel?.value,O=!T||T==="off",BI=(sl)=>__H__("svg",{viewBox:"0 0 640 640",fill:"currentColor",style:{display:"inline-block",verticalAlign:"-0.125em",flexShrink:"0",width:"16px",height:"16px"},children:[__H__("path",{d:"__BRAIN__"}),sl?__H__("path",{d:"__SLASH__",stroke:"currentColor",strokeWidth:"40",strokeLinecap:"round"}):null]}),R=/^claude-([a-z]+)-(\\d+)(?:-(\\d{1,2}))?(?!\\d)/,PN=(r)=>{let m=String(r??"").match(R);return m?`${m[1].charAt(0).toUpperCase()+m[1].slice(1)} ${m[3]?`${m[2]}.${m[3]}`:m[2]}`:null},W=(d,r)=>d&&/\\d/.test(d)?d:PN(r)??d,MS=SS?.claudeConfig?.value?.models??[],NSel=SS?.modelSelection?.value,NS=NSel==="default"||!NSel?"default":NSel,RM=MS.find((m)=>m.value===NS),D=RM?.displayName,L=RM?(RM.value==="default"?PN(RM.resolvedModel)??D:W(D,RM.resolvedModel??RM.value)):null,X=(ev)=>{let dd=ev.target.closest("details");if(dd)dd.removeAttribute("open")},HE=(ev)=>ev.currentTarget.style.background="var(--vscode-list-hoverBackground)",HL=(ev)=>ev.currentTarget.style.background="transparent",RS={display:"block",width:"100%",textAlign:"left",background:"transparent",border:"none",color:"var(--vscode-foreground)",padding:"4px 8px",borderRadius:"4px",cursor:"pointer",fontSize:"1em",whiteSpace:"nowrap"},HS={padding:"6px 8px 2px",opacity:".65",fontSize:".8em",textTransform:"uppercase",letterSpacing:".05em"};return L?__H__("details",{style:{position:"relative",display:"inline-block"},children:[__H__("summary",{className:__CSS__.footerButton,title:"Active model, effort, and thinking mode — click to change",style:{listStyle:"none",color:"var(--app-primary-foreground)"},children:[__H__("span",{title:O?"Thinking: off":`Thinking: ${T}`,style:{opacity:O?".55":"1",display:"inline-flex",alignItems:"center",padding:"0 5px 0 7px"},children:BI(O)}),__H__("span",{children:`${L}${__EFFORT__?` (${__EFFORT__})`:""}`})]}),__H__("div",{onClick:X,style:{position:"fixed",inset:"0",zIndex:"999"}}),__H__("div",{style:{position:"absolute",bottom:"calc(100% + 8px)",right:"0",zIndex:"1000",minWidth:"220px",maxHeight:"320px",overflowY:"auto",background:"var(--vscode-editorWidget-background)",border:"1px solid var(--vscode-editorWidget-border)",borderRadius:"6px",boxShadow:"0 4px 16px rgba(0,0,0,.35)",padding:"4px",color:"var(--vscode-foreground)",fontSize:".9em"},children:[__H__("div",{style:HS,children:"Model"}),MS.map((m)=>__H__("button",{type:"button",disabled:!!m.disabled,onMouseEnter:HE,onMouseLeave:HL,onClick:(ev)=>{void SS.setModel(m);X(ev)},style:{...RS,opacity:m.disabled?".5":"1",fontWeight:m.value===NS?"600":"400"},children:`${m.value===NS?"✓ ":""}${m.value==="default"?`${m.displayName||"Default"}${PN(m.resolvedModel)?` (${PN(m.resolvedModel)})`:""}`:W(m.displayName,m.resolvedModel??m.value)}`})),__LEVELS__?__H__("div",{style:HS,children:"Effort"}):null,__LEVELS__?__LEVELS__.map((lv)=>__H__("button",{type:"button",onMouseEnter:HE,onMouseLeave:HL,onClick:(ev)=>{SS.setEffortLevel(lv);X(ev)},style:{...RS,fontWeight:lv===__EFFORT__?"600":"400"},children:`${lv===__EFFORT__?"✓ ":""}${lv.charAt(0).toUpperCase()+lv.slice(1)}`})):null,__H__("div",{style:HS,children:"Thinking"}),__H__("button",{type:"button",onMouseEnter:HE,onMouseLeave:HL,onClick:(ev)=>{SS.setThinkingLevel(O?"default_on":"off");X(ev)},style:{...RS,fontWeight:O?"400":"600"},children:[`${O?"":"✓ "}`,BI(O),` ${O?"Off":"On"}`]})]})]}):null}catch{return null}})(),'.replace('__BRAIN__', BRAIN_D).replace('__SLASH__', SLASH_D);
 
-// The webview session already carries the rate-limit windows the host fetches
-// from /api/oauth/usage — `utilization` is a signal holding
-// `{fiveHour, sevenDay, ...}` with `{utilization: 0-100, resetsAt: ISO string}`.
-// Nothing in the stock UI reads it, and the host only refreshes it on request,
-// so the badge drives its own polling through `requestUsageUpdate()`.
+// The rate-limit windows the host pushes to the webview as `panel_usage_update`
+// land in a module-scope signal — `{five_hour, seven_day, ...}`, each window
+// `{utilization: 0-1, resetsAt: epoch seconds}` — which is also what the sidebar
+// usage bars read. Nothing refreshes it on a timer, so the badge keeps asking
+// the host for a fresh reading through `requestUsageUpdate()` and re-renders off
+// the signal. (Through 2.1.265 this sat on the session as `.utilization`, with
+// camelCase window names, percentages and ISO reset times; that property is gone
+// — reading it is why the badge went blank on 2.1.266.)
 //
-// A failed fetch blanks the signal host-side, so the last good reading is cached
-// on `globalThis` and kept on screen dimmed rather than letting the badge vanish
-// — and the poller backs off instead of hammering an endpoint already saying no.
-const USAGE_BADGE = '(()=>{try{let G=globalThis,K="__ccUsageBadge",LS="cc-usage-badge-cache",S=G[K],PS=(w,t)=>{try{G.localStorage&&G.localStorage.setItem(LS,JSON.stringify({w:w,at:t}))}catch{}};if(!S){let c=null;try{let v=G.localStorage&&G.localStorage.getItem(LS);if(v){let o=JSON.parse(v);if(o&&Array.isArray(o.w)&&o.w.length&&Date.now()-o.at<__STALE__)c=o}}catch{}S=G[K]={s:__SESSION__,ok:c?c.w:null,at:c?c.at:0,key:"",fail:0,next:0};let P=()=>{let n=Date.now(),z=S.s;if(!z||n<S.next)return;S.next=n+__POLL__+Math.random()*60000;Promise.resolve(z.requestUsageUpdate()).then(()=>{let u=z.utilization?.value;if(u&&(typeof u.fiveHour?.utilization==="number"||typeof u.sevenDay?.utilization==="number"))S.fail=0,S.at=Date.now(),S.ok&&PS(S.ok,S.at);else S.fail=Math.min(S.fail+1,3),S.next=Date.now()+Math.min(__POLL__*Math.pow(2,S.fail),1800000)},()=>{})};setTimeout(P,0),setInterval(P,30000)}S.s=__SESSION__;let U=__SESSION__?.utilization?.value,W=[["5h","Session (5h)",U?.fiveHour],["7d","Weekly (7d)",U?.sevenDay]].flatMap(([k,l,w])=>typeof w?.utilization==="number"?[{k,l,p:Math.max(0,Math.min(100,w.utilization)),r:w.resetsAt}]:[]),ST=!1;if(W.length){S.ok=W;let ky=W.map((x)=>x.k+x.p).join("|");if(S.key!==ky||!S.at)S.key=ky,S.at=Date.now(),PS(W,S.at)}else if(S.ok&&Date.now()-S.at<__STALE__)W=S.ok,ST=!0;if(W.length===0)return null;let RT=(v)=>{let d=new Date(v).getTime()-Date.now();if(!(d>0))return "soon";let m=Math.floor(d/60000);if(m<60)return `in ${m}m`;let h=Math.floor(m/60);if(h<24)return `in ${h}h`;return `in ${Math.floor(h/24)}d`},AG=(d)=>{let m=Math.round(d/60000);return m<1?"moments ago":m<60?`${m}m ago`:`${Math.round(m/60)}h ago`},M=Math.max(...W.map((x)=>x.p)),C=M>=95?"var(--vscode-errorForeground)":M>=80?"var(--vscode-editorWarning-foreground)":void 0;return __H__("button",{type:"button",className:__CSS__.footerButton,title:W.map((x)=>`${x.l}: ${Math.floor(x.p)}% used${x.r?` \\u00B7 resets ${RT(x.r)}`:""}`).concat(ST?[`Stale \\u00B7 last refresh ${AG(Date.now()-S.at)}`,"Click to retry"]:["Click to refresh"]).join("\\n"),onClick:()=>{try{S.fail=0,S.next=Date.now()+__POLL__,__SESSION__.requestUsageUpdate()}catch{}},style:{...C?{color:C}:{},...ST?{opacity:".55"}:{}},children:W.map((x,i)=>__H__("span",{style:{display:"inline-flex",alignItems:"center",gap:"4px",maxWidth:"none",marginLeft:i?"4px":"0"},children:[__H__("span",{style:{position:"relative",display:"inline-block",width:"20px",height:"4px",flexShrink:"0"},children:[__H__("span",{style:{position:"absolute",inset:"0",borderRadius:"2px",background:"currentColor",opacity:".25"}}),__H__("span",{style:{position:"absolute",left:"0",top:"0",bottom:"0",borderRadius:"2px",background:"currentColor",width:`${x.p}%`}})]}),__H__("span",{children:`${x.k} ${Math.floor(x.p)}%`})]},x.k))})}catch{return null}})(),'.replace(/__POLL__/g, String(USAGE_POLL_MS)).replace(/__STALE__/g, String(USAGE_STALE_MS));
+// The signal is empty until the first push lands, and a webview VS Code destroyed
+// and rebuilt starts empty again, so the last good reading is cached in
+// localStorage and kept on screen dimmed rather than letting the badge vanish —
+// and the poller backs off instead of hammering an endpoint already saying no.
+const USAGE_BADGE = '(()=>{try{let G=globalThis,K="__ccUsageBadge",LS="cc-usage-badge-cache-v2",S=G[K],PS=(w,t)=>{try{G.localStorage&&G.localStorage.setItem(LS,JSON.stringify({w:w,at:t}))}catch{}},RW=()=>{let u=__WINDOWS__?.value,n=Date.now();return[["5h","Session (5h)",u?.five_hour],["7d","Weekly (7d)",u?.seven_day]].flatMap(([k,l,w])=>{if(!w||typeof w.utilization!=="number")return[];let r=typeof w.resetsAt==="number"?w.resetsAt*1000:0;return[{k:k,l:l,p:r&&r<=n?0:Math.max(0,Math.min(100,w.utilization*100)),r:r}]})};if(!S){let c=null;try{let v=G.localStorage&&G.localStorage.getItem(LS);if(v){let o=JSON.parse(v);if(o&&Array.isArray(o.w)&&o.w.length&&Date.now()-o.at<__STALE__)c=o}}catch{}S=G[K]={s:__SESSION__,ok:c?c.w:null,at:c?c.at:0,key:"",fail:0,next:0};let BO=()=>{S.fail=Math.min(S.fail+1,3),S.next=Date.now()+Math.min(__POLL__*Math.pow(2,S.fail),1800000)},P=()=>{let n=Date.now(),z=S.s;if(!z||n<S.next)return;S.next=n+__POLL__+Math.random()*60000;Promise.resolve(z.requestUsageUpdate()).then(()=>{setTimeout(()=>{if(RW().length)S.fail=0;else BO()},2000)},BO)};setTimeout(P,0),setInterval(P,30000)}S.s=__SESSION__;let W=RW(),ST=!1;if(W.length){S.ok=W;let ky=W.map((x)=>x.k+x.p).join("|");if(S.key!==ky||!S.at)S.key=ky,S.at=Date.now(),PS(W,S.at)}else if(S.ok&&Date.now()-S.at<__STALE__)W=S.ok,ST=!0;if(W.length===0)return null;let RT=(v)=>{let d=v-Date.now();if(!(d>0))return "soon";let m=Math.floor(d/60000);if(m<60)return `in ${m}m`;let h=Math.floor(m/60);if(h<24)return `in ${h}h`;return `in ${Math.floor(h/24)}d`},AG=(d)=>{let m=Math.round(d/60000);return m<1?"moments ago":m<60?`${m}m ago`:`${Math.round(m/60)}h ago`},M=Math.max(...W.map((x)=>x.p)),C=M>=95?"var(--vscode-errorForeground)":M>=80?"var(--vscode-editorWarning-foreground)":void 0;return __H__("button",{type:"button",className:__CSS__.footerButton,title:W.map((x)=>`${x.l}: ${Math.floor(x.p)}% used${x.r?` \\u00B7 resets ${RT(x.r)}`:""}`).concat(ST?[`Stale \\u00B7 last refresh ${AG(Date.now()-S.at)}`,"Click to retry"]:["Click to refresh"]).join("\\n"),onClick:()=>{try{S.fail=0,S.next=Date.now()+__POLL__,__SESSION__.requestUsageUpdate()}catch{}},style:{...C?{color:C}:{},...ST?{opacity:".55"}:{}},children:W.map((x,i)=>__H__("span",{style:{display:"inline-flex",alignItems:"center",gap:"4px",maxWidth:"none",marginLeft:i?"4px":"0"},children:[__H__("span",{style:{position:"relative",display:"inline-block",width:"20px",height:"4px",flexShrink:"0"},children:[__H__("span",{style:{position:"absolute",inset:"0",borderRadius:"2px",background:"currentColor",opacity:".25"}}),__H__("span",{style:{position:"absolute",left:"0",top:"0",bottom:"0",borderRadius:"2px",background:"currentColor",width:`${x.p}%`}})]}),__H__("span",{children:`${x.k} ${Math.floor(x.p)}%`})]},x.k))})}catch{return null}})(),'.replace(/__POLL__/g, String(USAGE_POLL_MS)).replace(/__STALE__/g, String(USAGE_STALE_MS));
 
 // Both badges land between the spacer and the permission-mode button, usage
-// first so the reading order is usage · model · mode.
-const PATCH = USAGE_BADGE + BADGE;
+// first so the reading order is usage · model · mode. The usage badge is left out
+// when its signal can't be located, so a change on that side costs the usage
+// reading rather than the model badge as well.
+const buildPatch = (windowsVar) => (windowsVar ? USAGE_BADGE : '') + BADGE;
 
 // The anchor call-site is the only place these identifiers appear undisguised, so every
 // per-build variable the patch needs (element-creator fn, session object, effort level,
@@ -58,44 +64,60 @@ const PATCH = USAGE_BADGE + BADGE;
 // the most volatile part of the bundle between builds.
 const ANCHOR = /(className:([\w$]+)\.spacer\}\),)(([\w$]+)\([\w$]+,\{mode:[\w$]+,availableModes:[\w$]+,onSelect:\([\w$]+\)=>void ([\w$]+)\.setPermissionMode\([\w$]+,!0\),(?:\.\.\.\{\},)?anchorRight:!0,effortLevel:([\w$]+),supportedEffortLevels:([\w$]+),onSetEffort:[\w$]+,ultracodeAvailable:[\w$]+,ultracodeSelected:[\w$]+,onSelectUltracode:[\w$]+\}\))/;
 
-const INSTALLED_BADGE_RE = new RegExp(
-  PATCH
+// The signal holding the usage windows is module-scope and never named at the
+// badge's own call-site, so it is derived in two hops from shapes rather than
+// names, the same way ANCHOR captures the rest: the `panel_usage_update` relay
+// names the merge function, and the merge function's body names the signal.
+const USAGE_RELAY = /case"panel_usage_update":([\w$]+)\([\w$]+\.request\.unifiedWindows\)/;
+
+const usageWindowsVar = (source) => {
+  const relay = source.match(USAGE_RELAY);
+  if (!relay) return null;
+  const merge = source.match(new RegExp(
+    `function ${relay[1].replace(/\$/g, '\\$')}\\(([\\w$]+)\\)\\{` +
+    'let ([\\w$]+)=[\\w$]+\\(([\\w$]+)\\.value,\\1\\);if\\(\\2!==\\3\\.value\\)\\3\\.value=\\2\\}'
+  ));
+  return merge ? merge[3] : null;
+};
+
+const installedBadgeRe = (patch) => new RegExp(
+  patch
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/__CSS__/g, '[\\w$]+')
-    .replace(/__H__/g, '[\\w$]+')
-    .replace(/__SESSION__/g, '[\\w$]+')
-    .replace(/__EFFORT__/g, '[\\w$]+')
-    .replace(/__LEVELS__/g, '[\\w$]+')
+    .replace(/__(?:CSS|H|SESSION|EFFORT|LEVELS|WINDOWS)__/g, '[\\w$]+')
 );
 
 const EXTENSIONS_DIR = path.join(os.homedir(), '.vscode', 'extensions');
 
 const patchSource = (source) => {
-  if (INSTALLED_BADGE_RE.test(source)) {
-    return { status: 'already-patched', source };
+  const windowsVar = usageWindowsVar(source);
+  const template = buildPatch(windowsVar);
+
+  if (installedBadgeRe(template).test(source)) {
+    return { status: 'already-patched', source, windowsVar };
   }
 
   if (source.includes(MARKER)) {
-    return { status: 'outdated', source };
+    return { status: 'outdated', source, windowsVar };
   }
 
   if (!ANCHOR.test(source)) {
-    return { status: 'anchor-not-found', source };
+    return { status: 'anchor-not-found', source, windowsVar };
   }
 
   const patched = source.replace(ANCHOR, (_match, spacer, cssName, modeSelector, hFn, sessionVar, effortVar, levelsVar) => {
-    const patch = PATCH
+    const patch = template
       .replace(/__CSS__/g, cssName)
       .replace(/__H__/g, hFn)
       .replace(/__SESSION__/g, sessionVar)
       .replace(/__EFFORT__/g, effortVar)
-      .replace(/__LEVELS__/g, levelsVar);
+      .replace(/__LEVELS__/g, levelsVar)
+      .replace(/__WINDOWS__/g, windowsVar ?? '');
     return `${spacer}${patch}${modeSelector}`;
   });
 
   new vm.Script(patched); // parse-check; throws if the edit broke the bundle
 
-  return { status: 'patched', source: patched };
+  return { status: 'patched', source: patched, windowsVar };
 };
 
 const patchExtensionDir = (extDir) => {
@@ -105,10 +127,13 @@ const patchExtensionDir = (extDir) => {
   }
 
   const backup = `${bundle}.orig`;
-  let { status, source } = patchSource(fs.readFileSync(bundle, 'utf8'));
+  let { status, source, windowsVar } = patchSource(fs.readFileSync(bundle, 'utf8'));
+  // Said on every outcome that installs or keeps a badge: without it the usage
+  // half goes missing with nothing on screen to say why.
+  const usageNote = windowsVar ? '' : ' — model badge only, the usage signal was not found';
 
   if (status === 'already-patched') {
-    return 'already patched — skipped';
+    return `already patched — skipped${usageNote}`;
   }
 
   if (status === 'outdated') {
@@ -118,7 +143,7 @@ const patchExtensionDir = (extDir) => {
     ({ status, source } = patchSource(fs.readFileSync(backup, 'utf8')));
     if (status === 'patched') {
       fs.writeFileSync(bundle, source);
-      return 'badge upgraded from index.js.orig ✓ (reload the VS Code window)';
+      return `badge upgraded from index.js.orig ✓ (reload the VS Code window)${usageNote}`;
     }
     return `re-patch from backup failed (${status}) — bundle left with the old badge`;
   }
@@ -131,7 +156,7 @@ const patchExtensionDir = (extDir) => {
     fs.copyFileSync(bundle, backup);
   }
   fs.writeFileSync(bundle, source);
-  return 'patched ✓ (reload the VS Code window to see the badge)';
+  return `patched ✓ (reload the VS Code window to see the badge)${usageNote}`;
 };
 
 const main = () => {
@@ -162,4 +187,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { patchSource, MARKER, BADGE, USAGE_BADGE, PATCH, ANCHOR };
+module.exports = { patchSource, usageWindowsVar, MARKER, BADGE, USAGE_BADGE, buildPatch, ANCHOR, USAGE_RELAY };
