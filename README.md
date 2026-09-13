@@ -1,16 +1,20 @@
 # cc-vscode-statusbar
 
-The Claude Code VS Code extension doesn't tell you which model you're talking to. This patch
-adds a badge that does — model, effort level and thinking mode, always visible next to the
-permission-mode button. Click it to switch any of the three.
+The Claude Code VS Code extension only shows how much of your rate limits you've used inside its
+*Account & Usage* dialog. This patch puts it in the footer: **`5h 42% · 7d 18%`**, the share of
+the 5-hour session window and the 7-day weekly window you've burned, with a bar each, right
+before the permission-mode button. Reset times on hover, amber at 80% and red at 95%, click to
+refresh.
 
-https://github.com/user-attachments/assets/f6c3586f-c93b-4dea-965c-29fdc98389e7
+It reads the same figures as that dialog, which means it needs a Claude AI subscription login
+(Pro / Max / Team) — no other auth method reports those windows, and the badge then stays
+hidden — and it asks the extension to refresh them every five minutes per open webview.
 
 ## Install
 
 Ask Claude Code to do it:
 
-> Install the model badge patch from https://github.com/TsKyrk/cc-vscode-statusbar on this
+> Install the usage badge patch from https://github.com/TsKyrk/cc-vscode-statusbar on this
 > machine, and add a `SessionStart` hook so it survives extension updates.
 
 Or run it yourself:
@@ -24,26 +28,39 @@ Either way, reload the VS Code window afterwards (`Ctrl+Shift+P` → *Developer:
 **Re-run it after every extension update.** Updates install a fresh copy that has never been
 patched. The hook mentioned above automates this.
 
+The script keeps the name it had when it added a model badge, so hooks already pointing at it
+keep working.
+
 ## Uninstall
 
 Every extension folder keeps an untouched `webview/index.js.orig`. Copy it back over
 `index.js`, or just reinstall the extension.
 
-## This project deserves to die
+## What happened to the model badge
 
-It exists only because the extension has no such indicator. The feature was requested in
-[anthropics/claude-code#28986](https://github.com/anthropics/claude-code/issues/28986); the
-day Anthropic ships it, this repository becomes dead weight and should be archived.
+This repository started as a model badge — model, effort level and thinking mode next to the
+permission-mode button — because the extension had no such indicator, as requested in
+[anthropics/claude-code#28986](https://github.com/anthropics/claude-code/issues/28986). The
+extension now ships its own: a model pill in the footer showing the model and effort, click to
+switch, present since at least `2.1.266`. As this README always said it would, the model badge
+was retired rather than kept alongside it. The usage badge, which had lived on a
+`feat/usage-limits-badge` branch, is what's left, and is now `main`.
 
-Patching a bundled file is a workaround, not a solution. Treat it as one.
+Running the script over a bundle patched by an earlier version removes the model badge: it
+recognises the old patch and re-patches from `index.js.orig`.
+
+The same rule applies to what remains. The day the extension shows the rate-limit windows in
+its footer, this repository is dead weight and should be archived. Patching a bundled file is a
+workaround, not a solution. Treat it as one.
 
 ## Credits
 
-`claude-code-model-badge.js` was written and published by
+The original model badge script was written and published by
 **[@ianwieds](https://github.com/ianwieds)** in a comment on
-[anthropics/claude-code#28986](https://github.com/anthropics/claude-code/issues/28986). This
-repository republishes it unmodified so it's easier to find and re-run than a comment buried
-in an issue thread. The demo above is theirs too.
+[anthropics/claude-code#28986](https://github.com/anthropics/claude-code/issues/28986), and this
+repository first republished it as-is. The badge is gone, but the way the script patches — anchor
+on a call-site, capture identifiers rather than assume them, `index.js.orig` backup, parse-check
+before writing, idempotent re-runs — is still Ian's.
 
 Thank you, Ian, for the fix — the least we can do is send some traffic your way. Ian is a
 solopreneur based in Los Angeles building digital products at
@@ -51,70 +68,24 @@ solopreneur based in Los Angeles building digital products at
 spanning social media automation, marketing tech, AI chatbots, and developer utilities. Check
 out what he's shipping.
 
-Packaging and verification: [Claude Code](https://claude.com/claude-code).
+Usage badge and maintenance: [@TsKyrk](https://github.com/TsKyrk). Packaging and verification:
+[Claude Code](https://claude.com/claude-code).
 
 ## License
 
-None set, and none claimed here. The script is [@ianwieds](https://github.com/ianwieds)' work,
-reproduced as published. For any reuse beyond that, ask them.
+None set, and none claimed here. The script grew out of [@ianwieds](https://github.com/ianwieds)'
+published work; for any reuse beyond running it, ask.
 
 ---
 
-# NEW FEATURE : Checkout the other branch "feat/usage-limits-badge" for usage limit feature
+# Notes for Claude Code
 
-![capture](capture.png "Capture")
+*Everything below is for the agent doing the install. Humans can stop reading.*
 
-Additonnal badges : **`5h 42% · 7d 18%`**, the share of the 5-hour session window and the 7-day weekly window
-you've burned, with a bar each, reset times on hover, amber at 80% and red at 95%. Same script,
-same install.
+## Whether to install it
 
-It reads the same `/api/oauth/usage` figures as the extension's *Account & Usage* dialog, which
-means it needs a Claude AI subscription login (Pro / Max / Team) — no other auth method reports
-those windows, and the badge then stays hidden — and it refetches them every five minutes per
-open webview. That's why it's a branch and not the default: `main` stays as published, working
-everywhere and adding no network traffic.
-
-## Switching
-
-`git switch feat/usage-limits-badge`, then re-run the script; it reports
-`badge upgraded from index.js.orig ✓` and you reload the VS Code window.
-
-Coming back needs `webview/index.js.orig` restored **first**. Idempotence is one-way: a bundle
-patched by the branch contains `main`'s badge verbatim, so `main`'s script reports *already
-patched* and would leave the usage badge running. The other direction needs no such care — the
-branch's script recognises the older badge as outdated and re-patches from the backup.
-
-```sh
-git switch main
-cp ~/.vscode/extensions/anthropic.claude-code-*/webview/index.js.orig \
-   ~/.vscode/extensions/anthropic.claude-code-*/webview/index.js
-node claude-code-model-badge.js
-```
-
-## What it changes in the patch
-
-A second preact element goes in at the same anchor, so the patch becomes
-`USAGE_BADGE + BADGE` (via `buildPatch`). It reads the module-scope signal the host feeds with
-`panel_usage_update` — `{five_hour, seven_day, ...}`, each window `{utilization: 0-1, resetsAt:
-epoch seconds}` — and polls `requestUsageUpdate()` to keep it fresh. That signal's minified name
-is derived at patch time the way `ANCHOR` derives the rest, in two hops from shapes rather than
-names: the `panel_usage_update` relay names the merge function, and the merge function's body
-names the signal. Everything under *Notes for Claude Code* applies there too.
-
-If that derivation fails the usage half is simply left out and the model badge still installs;
-the script says so on the outcome line rather than shipping a badge that renders nothing.
-
-That poll is the only part worth being careful with. `/api/oauth/usage` answers **429** if you
-lean on it, and the stock extension only calls it when the *Account & Usage* dialog opens — one
-poll per minute per webview was enough to get locked out for hours, and because a failed fetch
-leaves the signal empty, the badge silently vanished rather than looking broken. Hence
-`USAGE_POLL_MS` at five minutes with jitter, exponential backoff on failure, and the last good
-reading cached and shown dimmed. Don't lower it.
-
-## Whether to offer the branch — for the agent
-
-It only pays off on a Claude AI subscription login; on anything else its badge renders nothing
-and `main` is the honest recommendation. Check rather than making the user self-declare:
+It only pays off on a Claude AI subscription login; on anything else the badge renders nothing.
+Check rather than making the user self-declare:
 
 ```js
 // ~/.claude.json — `oauthAccount` is written by a Claude AI (OAuth) login
@@ -124,53 +95,61 @@ j.oauthAccount?.organizationType;   // "claude_pro", "claude_max", … — absen
 ```
 
 That is the *CLI's* login and the extension keeps its own auth state; the same account in
-practice on one machine, but a heuristic, not proof. Say which way it came out, then stop — do
-not switch branches on your own initiative: a `SessionStart` hook pointing at this clone would
-silently start running something else.
-
----
-
-# Notes for Claude Code
-
-*Everything below is for the agent doing the install. Humans can stop reading.*
+practice on one machine, but a heuristic, not proof. Say which way it came out and let the user
+decide.
 
 ## What the patch does
 
-It injects a preact element immediately before the permission-mode selector in the extension's
-minified webview bundle, anchored on:
+It injects a preact element immediately after the footer spacer, before the permission-mode
+selector, in the extension's minified webview bundle, anchored on:
 
 ```
-className:<css>.spacer}),b(<component>,{mode:t,availableModes:i,onSelect:(D)=>void e.setPermissionMode(D,!0),...})
+className:<css>.spacer}),<h>(<component>,{mode:<m>,availableModes:<a>,onSelect:(<x>)=>void <session>.setPermissionMode(
 ```
 
-The injected code reuses variables already in scope there and calls the webview's own methods.
-It never adds state of its own.
+`ANCHOR` captures `<css>`, `<h>` (the element creator) and `<session>` from that call-site rather
+than assuming their minified names.
+
+The figures come from the module-scope signal the host feeds with `panel_usage_update` —
+`{five_hour, seven_day, ...}`, each window `{utilization: 0-1, resetsAt: epoch seconds}`, the same
+signal the extension's sidebar usage bars read. Its minified name is never visible at the anchor,
+so `usageWindowsVar` derives it in two hops from shapes rather than names: the
+`panel_usage_update` relay names the merge function, and the merge function's body names the
+signal. The badge polls `session.requestUsageUpdate()` to keep it fresh, and caches the last good
+reading in `localStorage` so a rebuilt webview shows it dimmed instead of nothing.
+
+That poll is the only part worth being careful with. `/api/oauth/usage` answers **429** if you
+lean on it, and the stock extension only refreshes when asked — one poll per minute per webview
+was enough to get locked out for hours, and because a failed fetch leaves the signal empty, the
+badge silently vanished rather than looking broken. Hence `USAGE_POLL_MS` at five minutes with
+jitter, exponential backoff on failure, and the dimmed cache. Don't lower it.
 
 ## Verify before writing anything
 
 `patchSource` is exported, so the patch can be exercised entirely in memory first:
 
 ```js
-const { patchSource } = require('./claude-code-model-badge.js');
+const { patchSource, usageWindowsVar } = require('./claude-code-model-badge.js');
 const src = require('fs').readFileSync(bundlePath, 'utf8');
 
+usageWindowsVar(src);                          // expect: a short identifier, e.g. "aG"
 patchSource(src).status;                       // expect: patched
 patchSource(patchSource(src).source).status;   // expect: already-patched
-patchSource('const x=1;').status;              // expect: anchor-not-found
+patchSource('const x=1;').status;              // expect: usage-signal-not-found
 ```
 
-`patched` then `already-patched` proves the anchor matches this build *and* that re-runs are
-safe. `anchor-not-found` on a real bundle means stop — the minified layout changed and
-`ANCHOR` needs updating. Report that rather than forcing it.
+`patched` then `already-patched` proves the anchor and the signal were both found in this build
+*and* that re-runs are safe. `usage-signal-not-found` or `anchor-not-found` on a real bundle
+means stop — the minified layout changed and `USAGE_RELAY` or `ANCHOR` needs updating. Report
+that rather than forcing it.
 
 A matching anchor is necessary but not sufficient. Confirm these exist in the bundle too:
 
 | Symbol | Why it matters |
 |---|---|
-| `k`, `S` | resolved model object and normalized selection — the badge label |
-| `f`, `g` | effort level and supported levels — the effort section of the dropup |
 | `<css>.footerButton` | the class the badge reuses; check it appears elsewhere in the bundle |
-| `setModel`, `setEffortLevel`, `setThinkingLevel` | what the dropup calls |
+| `requestUsageUpdate` | what the badge calls to refresh the figures |
+| `five_hour`, `seven_day`, `resetsAt` | the window shape the badge reads from the signal |
 
 Worth the two minutes: the badge is wrapped in a `try/catch` that renders `null`, so a wrong
 assumption breaks nothing — it just makes the badge silently not appear, which is far harder
@@ -180,10 +159,11 @@ to diagnose afterwards.
 
 | Property | Effect |
 |---|---|
-| Anchor miss | Bundle left untouched rather than blindly rewritten |
+| Anchor or signal miss | Bundle left untouched rather than blindly rewritten |
 | `new vm.Script(patched)` | Parse-check before any write; a broken edit is never persisted |
 | `index.js.orig` backup | Written before the first modification |
-| Idempotent | Re-running detects an existing badge and skips |
+| Idempotent | Re-running detects the current badge and skips |
+| Older patch detected | Re-patched from `index.js.orig` instead of stacked on top |
 | `try/catch` around the badge | Renders `null` on unexpected state instead of breaking the UI |
 
 ## Expect several extension folders
@@ -231,12 +211,13 @@ After editing `settings.json`, re-parse it. A malformed settings file silently d
 ## Two things that are not instant
 
 - The badge appears on the next **window reload**, not when the patch runs.
-- The hook runs at session start, so after an extension update the user is at most one reload
-  behind — not zero. Tell them, so they don't think it failed.
+- The hook runs at session start, and VS Code may already have loaded the webview from the
+  unpatched bundle by then. After an extension update the user is at most one reload behind —
+  not zero. Tell them, so they don't think it failed.
 
 ## Verified against
 
-| Extension version | Anchor match |
+| Extension version | Result |
 |---|---|
 | `2.1.217-win32-x64` | yes |
 | `2.1.218-win32-x64` | yes |
@@ -248,36 +229,35 @@ After editing `settings.json`, re-parse it. A malformed settings file silently d
 | `2.1.250-win32-x64` | yes (after rewrite) |
 | `2.1.266-win32-x64` | anchor yes; usage badge blank — usage source rewritten below |
 | `2.1.268-win32-x64` | yes (after rewrite) |
+| `2.1.270-win32-x64` | yes; model badge retired, anchor narrowed below |
 
 The anchor depended on minified variable names, which change between builds. `2.1.228` broke it
 (the mode-selector call site's last prop, `onSelectUltracode:y`, became `:x`; everything else
-held). The regex now matches `[\w$]+` for every prop *value* in that call instead of hardcoding
-them — only the literal prop names and surrounding syntax are fixed — so a future rename of that
-kind won't need another patch.
+held). The regex then matched `[\w$]+` for every prop *value* in that call instead of hardcoding
+them — only the literal prop names and surrounding syntax were fixed.
 
-`2.1.247` broke it differently and further up the stack: the `BADGE` snippet itself, not just
-`ANCHOR`, hardcoded single-letter identifiers (`b` for the element-creator/hyperscript function,
-`e` for the session object, `k`/`S` for the resolved model and normalized selection, `f`/`g` for
-effort level and supported levels), betting the minifier would keep reusing those same letters.
-It had for several builds by coincidence, then didn't — `b`→`j`, `e`→`$`, `f`→`F`, `g`→`A`, and
-`k`/`S` had no equivalent at the anchor site at all (they were locals computed further up inside
-the render function, one build's `k=_.find(...)` away from not existing under that name next
-time). Two fixes: `ANCHOR` now captures the element-creator, session, effort, and
-supported-levels identifiers directly from the anchor call site (the one place they appear
-undisguised) and threads them into `BADGE` the same way `__CSS__` already worked; and the badge
-no longer depends on `k`/`S` being handed to it — it re-derives the resolved model and current
-selection itself from `session.claudeConfig.value.models` and `session.modelSelection.value`,
-which are stable property names, not local variables that reshuffle between builds.
+`2.1.247` broke it further up the stack: the model badge snippet itself hardcoded single-letter
+identifiers (`b` for the element-creator function, `e` for the session object, and others),
+betting the minifier would keep reusing those same letters. It had for several builds by
+coincidence, then didn't. Since then `ANCHOR` captures the identifiers the patch needs directly
+from the anchor call site, the one place they appear undisguised, and threads them into the
+snippet.
 
-`2.1.266` left the anchor and the model badge intact but moved the usage data out from under the
-usage badge, which then rendered nothing at all: the session's `.utilization` signal is gone.
-The windows now arrive as a `panel_usage_update` message the host pushes to the webview and land
-in a module-scope signal, renamed and rescaled on the way — `fiveHour`/`sevenDay` became
-`five_hour`/`seven_day`, `utilization` went from a percentage to a 0-1 fraction, and `resetsAt`
-from an ISO string to epoch seconds (absent once the window has rolled over). `USAGE_BADGE` reads
-that signal instead, and derives its minified name from the relay call-site rather than
-hardcoding it. `requestUsageUpdate()` still drives the refresh, unchanged.
+`2.1.266` left the anchor intact but moved the usage data out from under the usage badge, which
+then rendered nothing at all: the session's `.utilization` signal is gone. The windows now arrive
+as a `panel_usage_update` message the host pushes to the webview and land in a module-scope
+signal, renamed and rescaled on the way — `fiveHour`/`sevenDay` became `five_hour`/`seven_day`,
+`utilization` went from a percentage to a 0-1 fraction, and `resetsAt` from an ISO string to
+epoch seconds (absent once the window has rolled over). The badge reads that signal instead, and
+derives its minified name from the relay call-site rather than hardcoding it.
+`requestUsageUpdate()` still drives the refresh, unchanged.
 
 `2.1.268` shipped two days later and is the reason that name is derived rather than written down:
-the same signal is `kG` in `2.1.266` and `xG` in `2.1.268`. Nothing else moved, and the script
-patched it unchanged. Add rows here when you confirm a new version.
+the same signal is `kG` in `2.1.266`, `xG` in `2.1.268` and `aG` in `2.1.270`.
+
+`2.1.270` changed nothing the patch depends on, but it is where the model badge was retired in
+favour of the extension's own model pill (which had in fact been there since at least `2.1.266`).
+With it went the anchor's need for the selector's effort props: `ANCHOR` now stops at
+`setPermissionMode(`, capturing only the CSS object, element creator and session, so a
+reshuffle of the props after it can no longer break the match. Add rows here when you confirm a
+new version.

@@ -1,20 +1,30 @@
 #!/usr/bin/env node
-// Patches the Claude Code VS Code extension's webview to add two badges next to
-// the permission-mode button:
-//   * `5h 42% · 7d 18%` — how much of the 5-hour and weekly rate-limit windows
-//     you've burned, with a bar per window; click to refresh.
-//   * `🧠 Model (effort)` — the active model; click for a model/effort/thinking
-//     dropup.
+// Patches the Claude Code VS Code extension's webview to add a rate-limit usage
+// badge next to the permission-mode button: `5h 42% · 7d 18%` — how much of the
+// 5-hour and weekly windows you've burned, with a bar per window; click to refresh.
 // Unofficial, edits index.js in place.
 // Run: node claude-code-model-badge.js  (then reload the VS Code window)
 // Rollback: cp webview/index.js.orig webview/index.js  (in the extension folder)
+//
+// The file keeps its old name so SessionStart hooks already pointing at it keep
+// working. The model badge it used to add is gone: the extension ships its own
+// model pill (present since at least 2.1.266).
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
 
-const MARKER = 'Active model, effort, and thinking mode';
+// Text only ever found in a bundle this script patched. Either one, where the
+// bundle doesn't hold exactly the current badge, sends it back to index.js.orig
+// for a clean re-patch.
+//
+// The retired model badge's tooltip is checked *before* the already-patched test:
+// a bundle patched while both badges existed also carries the current usage badge
+// verbatim, and would otherwise be skipped with the model badge still in it.
+const RETIRED_MODEL_BADGE = 'Active model, effort, and thinking mode';
+// The usage badge's globalThis key, present in every version of it.
+const USAGE_BADGE_KEY = '"__ccUsageBadge"';
 
 // How often the usage badge asks the host to re-fetch /api/oauth/usage.
 // The stock UI only fetches this when the Account & Usage dialog opens, and the
@@ -28,11 +38,6 @@ const USAGE_POLL_MS = 300000;
 // dies with every tab switch. Past this age the figures are dropped rather than
 // shown: a 5-hour window moves enough that stale numbers mislead.
 const USAGE_STALE_MS = 3600000;
-
-const BRAIN_D = 'M264 64C227.4 64 196.5 88.6 187 122.1C139.6 131.8 104 173.7 104 224C104 235.3 105.8 246.2 109.1 256.3C86.4 275.4 72 304 72 336C72 359.7 80 381.6 93.3 399.1C89.8 409.5 88 420.5 88 432C88 486 129.2 530.5 181.9 535.5C197.5 559.8 224.8 576 256 576C281.2 576 304 565.4 320 548.4C336 565.4 358.8 576 384 576C415.1 576 442.4 559.8 458.1 535.5C510.8 530.4 552 486 552 432C552 420.5 550.1 409.5 546.7 399.1C560.1 381.6 568 359.7 568 336C568 304 553.5 275.4 530.9 256.3C534.2 246.1 536 235.2 536 224C536 173.7 500.4 131.8 453 122.1C443.5 88.6 412.6 64 376 64C354.2 64 334.4 72.7 320 86.9C305.6 72.8 285.8 64 264 64zM296 144L296 491.1C295.9 491.7 295.8 492.3 295.7 493C293.2 512.7 276.4 528 256 528C239.2 528 224.8 517.7 218.9 502.9C215.1 493.3 205.6 487.3 195.3 487.9C194.2 488 193.1 488 192.1 488C161.2 488 136.1 462.9 136.1 432C136.1 422.5 138.5 413.5 142.6 405.7C147.7 396.1 145.7 384.3 137.8 376.9C126.8 366.7 120 352.1 120 336C120 314.4 132.2 295.6 150.3 286.2C156.2 283.2 160.5 277.8 162.3 271.5C164.1 265.2 163.2 258.3 159.8 252.6C154.8 244.2 151.9 234.5 151.9 224C151.9 193.1 177 168 207.9 168C221.2 168 231.9 157.3 231.9 144C231.9 126.3 246.2 112 263.9 112C281.6 112 295.9 126.3 295.9 144zM344 491.1L344 144C344 126.3 358.3 112 376 112C393.7 112 408 126.3 408 144C408 157.3 418.7 168 432 168C462.9 168 488 193.1 488 224C488 234.5 485.1 244.3 480.1 252.6C476.7 258.3 475.8 265.1 477.6 271.5C479.4 277.9 483.8 283.2 489.6 286.2C507.6 295.5 519.9 314.3 519.9 336C519.9 352.1 513.1 366.7 502.1 376.9C494.2 384.3 492.2 396.1 497.3 405.7C501.5 413.5 503.8 422.4 503.8 432C503.8 462.9 478.7 488 447.8 488C446.7 488 445.6 488 444.6 487.9C434.3 487.3 424.8 493.4 421 502.9C415.1 517.6 400.6 528 383.9 528C363.5 528 346.7 512.7 344.2 493C344.1 492.4 344 491.7 343.9 491.1z';
-const SLASH_D = 'M34.3 34.2C37.4 31.1 42.5 31.1 45.6 34.2L605.6 594.2C608.7 597.3 608.7 602.4 605.6 605.5C602.5 608.6 597.4 608.6 594.3 605.5L34.3 45.5C31.2 42.4 31.2 37.3 34.3 34.2z';
-
-const BADGE = '(()=>{try{let SS=__SESSION__,T=SS?.thinkingLevel?.value,O=!T||T==="off",BI=(sl)=>__H__("svg",{viewBox:"0 0 640 640",fill:"currentColor",style:{display:"inline-block",verticalAlign:"-0.125em",flexShrink:"0",width:"16px",height:"16px"},children:[__H__("path",{d:"__BRAIN__"}),sl?__H__("path",{d:"__SLASH__",stroke:"currentColor",strokeWidth:"40",strokeLinecap:"round"}):null]}),R=/^claude-([a-z]+)-(\\d+)(?:-(\\d{1,2}))?(?!\\d)/,PN=(r)=>{let m=String(r??"").match(R);return m?`${m[1].charAt(0).toUpperCase()+m[1].slice(1)} ${m[3]?`${m[2]}.${m[3]}`:m[2]}`:null},W=(d,r)=>d&&/\\d/.test(d)?d:PN(r)??d,MS=SS?.claudeConfig?.value?.models??[],NSel=SS?.modelSelection?.value,NS=NSel==="default"||!NSel?"default":NSel,RM=MS.find((m)=>m.value===NS),D=RM?.displayName,L=RM?(RM.value==="default"?PN(RM.resolvedModel)??D:W(D,RM.resolvedModel??RM.value)):null,X=(ev)=>{let dd=ev.target.closest("details");if(dd)dd.removeAttribute("open")},HE=(ev)=>ev.currentTarget.style.background="var(--vscode-list-hoverBackground)",HL=(ev)=>ev.currentTarget.style.background="transparent",RS={display:"block",width:"100%",textAlign:"left",background:"transparent",border:"none",color:"var(--vscode-foreground)",padding:"4px 8px",borderRadius:"4px",cursor:"pointer",fontSize:"1em",whiteSpace:"nowrap"},HS={padding:"6px 8px 2px",opacity:".65",fontSize:".8em",textTransform:"uppercase",letterSpacing:".05em"};return L?__H__("details",{style:{position:"relative",display:"inline-block"},children:[__H__("summary",{className:__CSS__.footerButton,title:"Active model, effort, and thinking mode — click to change",style:{listStyle:"none",color:"var(--app-primary-foreground)"},children:[__H__("span",{title:O?"Thinking: off":`Thinking: ${T}`,style:{opacity:O?".55":"1",display:"inline-flex",alignItems:"center",padding:"0 5px 0 7px"},children:BI(O)}),__H__("span",{children:`${L}${__EFFORT__?` (${__EFFORT__})`:""}`})]}),__H__("div",{onClick:X,style:{position:"fixed",inset:"0",zIndex:"999"}}),__H__("div",{style:{position:"absolute",bottom:"calc(100% + 8px)",right:"0",zIndex:"1000",minWidth:"220px",maxHeight:"320px",overflowY:"auto",background:"var(--vscode-editorWidget-background)",border:"1px solid var(--vscode-editorWidget-border)",borderRadius:"6px",boxShadow:"0 4px 16px rgba(0,0,0,.35)",padding:"4px",color:"var(--vscode-foreground)",fontSize:".9em"},children:[__H__("div",{style:HS,children:"Model"}),MS.map((m)=>__H__("button",{type:"button",disabled:!!m.disabled,onMouseEnter:HE,onMouseLeave:HL,onClick:(ev)=>{void SS.setModel(m);X(ev)},style:{...RS,opacity:m.disabled?".5":"1",fontWeight:m.value===NS?"600":"400"},children:`${m.value===NS?"✓ ":""}${m.value==="default"?`${m.displayName||"Default"}${PN(m.resolvedModel)?` (${PN(m.resolvedModel)})`:""}`:W(m.displayName,m.resolvedModel??m.value)}`})),__LEVELS__?__H__("div",{style:HS,children:"Effort"}):null,__LEVELS__?__LEVELS__.map((lv)=>__H__("button",{type:"button",onMouseEnter:HE,onMouseLeave:HL,onClick:(ev)=>{SS.setEffortLevel(lv);X(ev)},style:{...RS,fontWeight:lv===__EFFORT__?"600":"400"},children:`${lv===__EFFORT__?"✓ ":""}${lv.charAt(0).toUpperCase()+lv.slice(1)}`})):null,__H__("div",{style:HS,children:"Thinking"}),__H__("button",{type:"button",onMouseEnter:HE,onMouseLeave:HL,onClick:(ev)=>{SS.setThinkingLevel(O?"default_on":"off");X(ev)},style:{...RS,fontWeight:O?"400":"600"},children:[`${O?"":"✓ "}`,BI(O),` ${O?"Off":"On"}`]})]})]}):null}catch{return null}})(),'.replace('__BRAIN__', BRAIN_D).replace('__SLASH__', SLASH_D);
 
 // The rate-limit windows the host pushes to the webview as `panel_usage_update`
 // land in a module-scope signal — `{five_hour, seven_day, ...}`, each window
@@ -49,20 +54,14 @@ const BADGE = '(()=>{try{let SS=__SESSION__,T=SS?.thinkingLevel?.value,O=!T||T==
 // and the poller backs off instead of hammering an endpoint already saying no.
 const USAGE_BADGE = '(()=>{try{let G=globalThis,K="__ccUsageBadge",LS="cc-usage-badge-cache-v2",S=G[K],PS=(w,t)=>{try{G.localStorage&&G.localStorage.setItem(LS,JSON.stringify({w:w,at:t}))}catch{}},RW=()=>{let u=__WINDOWS__?.value,n=Date.now();return[["5h","Session (5h)",u?.five_hour],["7d","Weekly (7d)",u?.seven_day]].flatMap(([k,l,w])=>{if(!w||typeof w.utilization!=="number")return[];let r=typeof w.resetsAt==="number"?w.resetsAt*1000:0;return[{k:k,l:l,p:r&&r<=n?0:Math.max(0,Math.min(100,w.utilization*100)),r:r}]})};if(!S){let c=null;try{let v=G.localStorage&&G.localStorage.getItem(LS);if(v){let o=JSON.parse(v);if(o&&Array.isArray(o.w)&&o.w.length&&Date.now()-o.at<__STALE__)c=o}}catch{}S=G[K]={s:__SESSION__,ok:c?c.w:null,at:c?c.at:0,key:"",fail:0,next:0};let BO=()=>{S.fail=Math.min(S.fail+1,3),S.next=Date.now()+Math.min(__POLL__*Math.pow(2,S.fail),1800000)},P=()=>{let n=Date.now(),z=S.s;if(!z||n<S.next)return;S.next=n+__POLL__+Math.random()*60000;Promise.resolve(z.requestUsageUpdate()).then(()=>{setTimeout(()=>{if(RW().length)S.fail=0;else BO()},2000)},BO)};setTimeout(P,0),setInterval(P,30000)}S.s=__SESSION__;let W=RW(),ST=!1;if(W.length){S.ok=W;let ky=W.map((x)=>x.k+x.p).join("|");if(S.key!==ky||!S.at)S.key=ky,S.at=Date.now(),PS(W,S.at)}else if(S.ok&&Date.now()-S.at<__STALE__)W=S.ok,ST=!0;if(W.length===0)return null;let RT=(v)=>{let d=v-Date.now();if(!(d>0))return "soon";let m=Math.floor(d/60000);if(m<60)return `in ${m}m`;let h=Math.floor(m/60);if(h<24)return `in ${h}h`;return `in ${Math.floor(h/24)}d`},AG=(d)=>{let m=Math.round(d/60000);return m<1?"moments ago":m<60?`${m}m ago`:`${Math.round(m/60)}h ago`},M=Math.max(...W.map((x)=>x.p)),C=M>=95?"var(--vscode-errorForeground)":M>=80?"var(--vscode-editorWarning-foreground)":void 0;return __H__("button",{type:"button",className:__CSS__.footerButton,title:W.map((x)=>`${x.l}: ${Math.floor(x.p)}% used${x.r?` \\u00B7 resets ${RT(x.r)}`:""}`).concat(ST?[`Stale \\u00B7 last refresh ${AG(Date.now()-S.at)}`,"Click to retry"]:["Click to refresh"]).join("\\n"),onClick:()=>{try{S.fail=0,S.next=Date.now()+__POLL__,__SESSION__.requestUsageUpdate()}catch{}},style:{...C?{color:C}:{},...ST?{opacity:".55"}:{}},children:W.map((x,i)=>__H__("span",{style:{display:"inline-flex",alignItems:"center",gap:"4px",maxWidth:"none",marginLeft:i?"4px":"0"},children:[__H__("span",{style:{position:"relative",display:"inline-block",width:"20px",height:"4px",flexShrink:"0"},children:[__H__("span",{style:{position:"absolute",inset:"0",borderRadius:"2px",background:"currentColor",opacity:".25"}}),__H__("span",{style:{position:"absolute",left:"0",top:"0",bottom:"0",borderRadius:"2px",background:"currentColor",width:`${x.p}%`}})]}),__H__("span",{children:`${x.k} ${Math.floor(x.p)}%`})]},x.k))})}catch{return null}})(),'.replace(/__POLL__/g, String(USAGE_POLL_MS)).replace(/__STALE__/g, String(USAGE_STALE_MS));
 
-// Both badges land between the spacer and the permission-mode button, usage
-// first so the reading order is usage · model · mode. The usage badge is left out
-// when its signal can't be located, so a change on that side costs the usage
-// reading rather than the model badge as well.
-const buildPatch = (windowsVar) => (windowsVar ? USAGE_BADGE : '') + BADGE;
-
-// The anchor call-site is the only place these identifiers appear undisguised, so every
-// per-build variable the patch needs (element-creator fn, session object, effort level,
-// supported-effort-levels) is captured here rather than assumed to keep a fixed name.
-// The model list and current selection are *not* captured — BADGE re-derives them itself
-// from `.claudeConfig`/`.modelSelection` (stable property names on the session object),
-// since neither appears at this anchor and local var names inside the render function are
-// the most volatile part of the bundle between builds.
-const ANCHOR = /(className:([\w$]+)\.spacer\}\),)(([\w$]+)\([\w$]+,\{mode:[\w$]+,availableModes:[\w$]+,onSelect:\([\w$]+\)=>void ([\w$]+)\.setPermissionMode\([\w$]+,!0\),(?:\.\.\.\{\},)?anchorRight:!0,effortLevel:([\w$]+),supportedEffortLevels:([\w$]+),onSetEffort:[\w$]+,ultracodeAvailable:[\w$]+,ultracodeSelected:[\w$]+,onSelectUltracode:[\w$]+\}\))/;
+// The badge goes in right after the footer spacer, before the permission-mode
+// selector. That call-site is the one place the per-build identifiers the badge
+// needs appear undisguised — the CSS-module object (from the spacer), the
+// element-creator function and the session object — so they are captured here
+// rather than assumed to keep a fixed name. Only as much of the selector call is
+// matched as yields them: the effort props after it only ever mattered to the
+// retired model badge, and each one was something a build could reshuffle.
+const ANCHOR = /(className:([\w$]+)\.spacer\}\),)(([\w$]+)\([\w$]+,\{mode:[\w$]+,availableModes:[\w$]+,onSelect:\([\w$]+\)=>void ([\w$]+)\.setPermissionMode\()/;
 
 // The signal holding the usage windows is module-scope and never named at the
 // badge's own call-site, so it is derived in two hops from shapes rather than
@@ -83,41 +82,48 @@ const usageWindowsVar = (source) => {
 const installedBadgeRe = (patch) => new RegExp(
   patch
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/__(?:CSS|H|SESSION|EFFORT|LEVELS|WINDOWS)__/g, '[\\w$]+')
+    .replace(/__(?:CSS|H|SESSION|WINDOWS)__/g, '[\\w$]+')
 );
 
 const EXTENSIONS_DIR = path.join(os.homedir(), '.vscode', 'extensions');
 
 const patchSource = (source) => {
   const windowsVar = usageWindowsVar(source);
-  const template = buildPatch(windowsVar);
 
-  if (installedBadgeRe(template).test(source)) {
-    return { status: 'already-patched', source, windowsVar };
+  if (source.includes(RETIRED_MODEL_BADGE)) {
+    return { status: 'outdated', source };
   }
 
-  if (source.includes(MARKER)) {
-    return { status: 'outdated', source, windowsVar };
+  if (windowsVar && installedBadgeRe(USAGE_BADGE).test(source)) {
+    return { status: 'already-patched', source };
+  }
+
+  if (source.includes(USAGE_BADGE_KEY)) {
+    return { status: 'outdated', source };
+  }
+
+  if (!windowsVar) {
+    return { status: 'usage-signal-not-found', source };
   }
 
   if (!ANCHOR.test(source)) {
-    return { status: 'anchor-not-found', source, windowsVar };
+    return { status: 'anchor-not-found', source };
   }
 
-  const patched = source.replace(ANCHOR, (_match, spacer, cssName, modeSelector, hFn, sessionVar, effortVar, levelsVar) => {
-    const patch = template
-      .replace(/__CSS__/g, cssName)
-      .replace(/__H__/g, hFn)
-      .replace(/__SESSION__/g, sessionVar)
-      .replace(/__EFFORT__/g, effortVar)
-      .replace(/__LEVELS__/g, levelsVar)
-      .replace(/__WINDOWS__/g, windowsVar ?? '');
+  // Function replacers: minified names such as `$$` are valid identifiers, and a
+  // replacement *string* would read them as substitution patterns.
+  const patched = source.replace(ANCHOR, (_match, spacer, cssName, modeSelector, hFn, sessionVar) => {
+    const patch = USAGE_BADGE
+      .replace(/__CSS__/g, () => cssName)
+      .replace(/__H__/g, () => hFn)
+      .replace(/__SESSION__/g, () => sessionVar)
+      .replace(/__WINDOWS__/g, () => windowsVar);
     return `${spacer}${patch}${modeSelector}`;
   });
 
   new vm.Script(patched); // parse-check; throws if the edit broke the bundle
 
-  return { status: 'patched', source: patched, windowsVar };
+  return { status: 'patched', source: patched };
 };
 
 const patchExtensionDir = (extDir) => {
@@ -127,13 +133,10 @@ const patchExtensionDir = (extDir) => {
   }
 
   const backup = `${bundle}.orig`;
-  let { status, source, windowsVar } = patchSource(fs.readFileSync(bundle, 'utf8'));
-  // Said on every outcome that installs or keeps a badge: without it the usage
-  // half goes missing with nothing on screen to say why.
-  const usageNote = windowsVar ? '' : ' — model badge only, the usage signal was not found';
+  let { status, source } = patchSource(fs.readFileSync(bundle, 'utf8'));
 
   if (status === 'already-patched') {
-    return `already patched — skipped${usageNote}`;
+    return 'already patched — skipped';
   }
 
   if (status === 'outdated') {
@@ -143,9 +146,13 @@ const patchExtensionDir = (extDir) => {
     ({ status, source } = patchSource(fs.readFileSync(backup, 'utf8')));
     if (status === 'patched') {
       fs.writeFileSync(bundle, source);
-      return `badge upgraded from index.js.orig ✓ (reload the VS Code window)${usageNote}`;
+      return 'badge upgraded from index.js.orig ✓ (reload the VS Code window)';
     }
     return `re-patch from backup failed (${status}) — bundle left with the old badge`;
+  }
+
+  if (status === 'usage-signal-not-found') {
+    return 'usage signal not found — left untouched (the usage relay changed; update USAGE_RELAY)';
   }
 
   if (status === 'anchor-not-found') {
@@ -156,7 +163,7 @@ const patchExtensionDir = (extDir) => {
     fs.copyFileSync(bundle, backup);
   }
   fs.writeFileSync(bundle, source);
-  return `patched ✓ (reload the VS Code window to see the badge)${usageNote}`;
+  return 'patched ✓ (reload the VS Code window to see the badge)';
 };
 
 const main = () => {
@@ -187,4 +194,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { patchSource, usageWindowsVar, MARKER, BADGE, USAGE_BADGE, buildPatch, ANCHOR, USAGE_RELAY };
+module.exports = { patchSource, usageWindowsVar, RETIRED_MODEL_BADGE, USAGE_BADGE_KEY, USAGE_BADGE, ANCHOR, USAGE_RELAY };
